@@ -4,7 +4,7 @@
 llm:
   model: "glm-5-turbo"
   base_url: "https://open.bigmodel.cn/api/paas/v4"
-  api_key: "0ae785e691cc4159a99a7f60f869a9bb.0eis0htIzPx6i8y3"  # 改为环境变量: ${ZHIPU_API_KEY}
+  api_key: "${ZHIPU_API_KEY}"  # 改为环境变量: ${ZHIPU_API_KEY}
   temperature: 0.1
   max_tokens: 2000
 
@@ -12,8 +12,7 @@ llm:
 requests:
   timeout: 30
   retry_max: 3
-  retry_interval: 2  # 秒
-  sleep_between_items: 1.5  # 每条数据间隔
+  retry_interval: 2  # �?  sleep_between_items: 1.5  # 每条数据间隔
 
 # 数据预览配置
 data_preview:
@@ -27,5 +26,5 @@ readme:
 
 # 输出配置
 output:
-  desktop: true  # 输出到桌面
-  format: "xlsx"  # 可选 xlsx, json
+  desktop: true  # 输出到桌�?  format: "xlsx"  # 可�?xlsx, json
+
