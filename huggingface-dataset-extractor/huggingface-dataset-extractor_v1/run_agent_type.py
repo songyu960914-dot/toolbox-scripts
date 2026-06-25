@@ -10,7 +10,7 @@ from openai import OpenAI
 # 智谱 GLM API
 llm_client = OpenAI(
     base_url="https://open.bigmodel.cn/api/paas/v4",
-    api_key="${ZHIPU_API_KEY}"
+    api_key="0f69e84c9f484b77b8c2df48967245ea.WDa8YSYqxEqKD5Ch"
 )
 
 
