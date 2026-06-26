@@ -432,15 +432,20 @@ def extract_info(seq, url, dataset_id, api_data, readme_text):
         result['Tags'] = ','.join(merged)
 
     # 数据大小
-    download_size = card_data.get('download_size')
-    if download_size is None:
+    # 优先使用 API 顶层 usedStorage（对应网页 Total file size，覆盖率最高）
+    file_size = api_data.get('usedStorage')
+    # fallback: cardData.download_size
+    if not file_size:
+        file_size = card_data.get('download_size')
+    # fallback: dataset_info 中的 download_size
+    if not file_size:
         for di in dataset_info_list:
             ds = di.get('download_size')
             if ds:
-                download_size = (download_size or 0) + ds
-    if download_size is not None and download_size > 0:
+                file_size = (file_size or 0) + ds
+    if file_size and file_size > 0:
         try:
-            result['数据大小（GB）'] = round(download_size / (1024 ** 3), 4)
+            result['数据大小（GB）'] = round(file_size / (1024 ** 3), 4)
         except:
             pass
 
