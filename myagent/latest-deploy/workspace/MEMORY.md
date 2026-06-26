@@ -95,7 +95,7 @@
 **Cron ID：** b8729b5d-86e0-4592-92ac-c0d5b4e32772
 
 **机制：**
-- 每周日凌晨3点自动运行
+- 每天下午5点自动运行（cron: `0 17 * * *` Asia/Shanghai）
 - 脚本：`scripts/auto_package_push.py`
 - 打包当前 workspace 配置和记忆（脱敏版）
 - 推送到 GitHub 仓库 `toolbox-scripts/myagent/latest-deploy/`

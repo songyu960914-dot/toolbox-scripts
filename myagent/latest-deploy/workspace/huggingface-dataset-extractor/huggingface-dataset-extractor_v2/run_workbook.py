@@ -432,8 +432,11 @@ def extract_info(seq, url, dataset_id, api_data, readme_text):
         result['Tags'] = ','.join(merged)
 
     # 数据大小（对应网页 "Total file size"）
-    # 优先使用 datasets-server /size 接口的 num_bytes_original_files
+    # 来源1: datasets-server /size 的 num_bytes_original_files（精确的数据文件大小）
+    # 来源2: API 的 usedStorage（仓库总存储，含大文件如视频/图片）
+    # 逻辑: 取两者较大值（usedStorage 含非数据文件，original_files 可能漏掉非 parquet 文件）
     file_size = None
+    original_bytes = None
     try:
         size_resp = requests.get(
             'https://datasets-server.huggingface.co/size',
@@ -442,9 +445,14 @@ def extract_info(seq, url, dataset_id, api_data, readme_text):
         )
         if size_resp.status_code == 200:
             size_data = size_resp.json().get('size', {}).get('dataset', {})
-            file_size = size_data.get('num_bytes_original_files')
+            original_bytes = size_data.get('num_bytes_original_files')
     except:
         pass
+    used_storage = api_data.get('usedStorage')
+    # 取较大值
+    candidates = [v for v in [original_bytes, used_storage] if v and v > 0]
+    if candidates:
+        file_size = max(candidates)
     # fallback: cardData.download_size
     if not file_size:
         file_size = card_data.get('download_size')
@@ -456,7 +464,17 @@ def extract_info(seq, url, dataset_id, api_data, readme_text):
                 file_size = (file_size or 0) + ds
     if file_size and file_size > 0:
         try:
-            result['数据大小（GB）'] = round(file_size / (1024 ** 3), 4)
+            # 十进制换算，与网页显示一致
+            gb_val = file_size / (1000 ** 3)
+            if gb_val >= 0.01:
+                result['数据大小（GB）'] = round(gb_val, 2)
+            else:
+                mb_val = file_size / (1000 ** 2)
+                if mb_val >= 0.1:
+                    result['数据大小（GB）'] = f"{round(mb_val, 1)} MB"
+                else:
+                    kb_val = file_size / 1000
+                    result['数据大小（GB）'] = f"{round(kb_val, 1)} kB"
         except:
             pass
 
