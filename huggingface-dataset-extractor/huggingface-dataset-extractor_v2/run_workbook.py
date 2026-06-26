@@ -446,12 +446,44 @@ def extract_info(seq, url, dataset_id, api_data, readme_text):
 
     # 数据量级
     num_examples_total = 0
+    # 来源1: cardData.dataset_info.splits（支持 list 和 dict 两种格式）
     for di in dataset_info_list:
-        splits_info = di.get('splits', [])
+        splits_info = di.get('splits', {})
         if isinstance(splits_info, list):
             for s in splits_info:
-                if isinstance(s, dict) and s.get('num_examples'):
-                    num_examples_total += s['num_examples']
+                if isinstance(s, dict):
+                    n = s.get('num_examples') or s.get('num_rows') or 0
+                    num_examples_total += int(n)
+        elif isinstance(splits_info, dict):
+            for split_name, split_val in splits_info.items():
+                if isinstance(split_val, dict):
+                    n = split_val.get('num_examples') or split_val.get('num_rows') or 0
+                    num_examples_total += int(n)
+                elif isinstance(split_val, (int, float)):
+                    num_examples_total += int(split_val)
+
+    # 来源2: datasets-server /info 接口（cardData 拿不到时 fallback）
+    if num_examples_total == 0:
+        try:
+            info_resp = requests.get(
+                'https://datasets-server.huggingface.co/info',
+                params={'dataset': dataset_id},
+                timeout=15
+            )
+            if info_resp.status_code == 200:
+                server_info = info_resp.json().get('dataset_info', {})
+                for config_name, config_val in server_info.items():
+                    if not isinstance(config_val, dict):
+                        continue
+                    splits_dict = config_val.get('splits', {})
+                    if isinstance(splits_dict, dict):
+                        for sp_name, sp_val in splits_dict.items():
+                            if isinstance(sp_val, dict):
+                                n = sp_val.get('num_examples') or sp_val.get('num_rows') or 0
+                                num_examples_total += int(n)
+        except:
+            pass
+
     if num_examples_total > 0:
         result['数据量级（条）'] = num_examples_total
 
