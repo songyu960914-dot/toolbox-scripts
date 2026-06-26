@@ -1,0 +1,136 @@
+{
+  "meta": {
+    "lastTouchedVersion": "2026.3.23",
+    "lastTouchedAt": "2026-05-21T07:11:08.739Z"
+  },
+  "wizard": {
+    "lastRunAt": "2026-05-14T07:03:53.523Z",
+    "lastRunVersion": "2026.3.13",
+    "lastRunCommand": "onboard",
+    "lastRunMode": "local"
+  },
+  "auth": {
+    "profiles": {
+      "litellm:default": {
+        "provider": "litellm",
+        "mode": "api_key"
+      }
+    }
+  },
+  "models": {
+    "mode": "merge",
+    "providers": {
+      "litellm": {
+        "baseUrl": "http://127.0.0.1:4000",
+        "apiKey": "${API_KEY}",
+        "api": "openai-completions",
+        "models": [
+          {
+            "id": "claude-opus-4-6",
+            "name": "Claude Opus 4.6",
+            "cost": {
+              "input": 0.0,
+              "output": 0.0,
+              "cacheWrite": 0,
+              "cacheRead": 0
+            },
+            "contextWindow": 100000,
+            "maxTokens": 1280000,
+            "input": [
+              "text",
+              "image"
+            ],
+            "reasoning": true
+          },
+          {
+            "id": "glm-5-turbo",
+            "name": "glm-5-turbo model",
+            "cost": {
+              "input": 5.0,
+              "output": 25.0,
+              "cacheRead": 0.5,
+              "cacheWrite": 6.25
+            },
+            "contextWindow": 200000,
+            "input": [
+              "text"
+            ],
+            "reasoning": true,
+            "maxTokens": 128000
+          }
+        ]
+      }
+    }
+  },
+  "agents": {
+    "defaults": {
+      "model": {
+        "primary": "litellm/claude-opus-4-6"
+      },
+      "models": {
+        "litellm/claude-opus-4-6": {
+          "alias": "LiteLLM"
+        },
+        "anthropic/claude-sonnet-4-6": {}
+      },
+      "workspace": "C:\\Users\\yuson\\.openclaw\\workspace",
+      "heartbeat": {
+        "every": "0m"
+      }
+    },
+    "list": [
+      {
+        "id": "main",
+        "tools": {
+          "alsoAllow": [
+            "browser"
+          ]
+        }
+      }
+    ]
+  },
+  "tools": {
+    "profile": "coding",
+    "web": {
+      "search": {
+        "enabled": false
+      },
+      "fetch": {
+        "enabled": false
+      }
+    }
+  },
+  "commands": {
+    "native": "auto",
+    "nativeSkills": "auto",
+    "restart": true,
+    "ownerDisplay": "raw"
+  },
+  "session": {
+    "dmScope": "per-channel-peer"
+  },
+  "gateway": {
+    "port": 18789,
+    "mode": "local",
+    "bind": "loopback",
+    "auth": {
+      "mode": "token",
+      "token": "${GATEWAY_TOKEN}"
+    },
+    "tailscale": {
+      "mode": "off",
+      "resetOnExit": false
+    },
+    "nodes": {
+      "denyCommands": [
+        "camera.snap",
+        "camera.clip",
+        "screen.record",
+        "contacts.add",
+        "calendar.add",
+        "reminders.add",
+        "sms.send"
+      ]
+    }
+  }
+}
