@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """
 HuggingFace Dataset Metadata Extractor - Concurrent Version
-并发版：异步请求 + 合并 LLM 调用 + 配置外部�?"""
+并发版：异步请求 + 合并 LLM 调用 + 配置外部化
+"""
 import os, sys, time, re, requests, pandas as pd, yaml, asyncio
 from datetime import datetime
 from openai import OpenAI
@@ -27,13 +28,15 @@ config, api_key = load_config()
 llm_config = config['llm']
 req_config = config['requests']
 
-# LLM 客户端（线程安全�?llm_client = OpenAI(
+# LLM 客户端（线程安全）
+llm_client = OpenAI(
     base_url=llm_config['base_url'],
     api_key=api_key
 )
 
 # 并发控制
-CONCURRENCY = 5  # 并发�?print_lock = threading.Lock()
+CONCURRENCY = 1  # 串行，避免429
+print_lock = threading.Lock()
 
 
 def extract_from_tags(tags, prefix):
@@ -67,7 +70,7 @@ def merge_unique(*lists):
 
 
 def fetch_readme(dataset_id):
-    """获取 README（带重试�?""
+    """获取 README（带重试）"""
     url = f'https://huggingface.co/datasets/{dataset_id}/raw/main/README.md'
     max_retries = req_config['retry_max']
     
@@ -87,7 +90,7 @@ def fetch_readme(dataset_id):
 
 
 def fetch_data_preview(dataset_id):
-    """获取数据预览（带重试�?""
+    """获取数据预览（带重试）"""
     base_url = 'https://datasets-server.huggingface.co'
     max_retries = req_config['retry_max']
     
@@ -156,7 +159,7 @@ def fetch_data_preview(dataset_id):
 
 
 def check_content_warning(api_data, tags, readme_text, card_data):
-    """检测内容警�?""
+    """检测内容警告"""
     all_text = readme_text if readme_text else ''
     if isinstance(card_data, dict):
         desc = card_data.get('description', '') or ''
@@ -180,7 +183,7 @@ def check_content_warning(api_data, tags, readme_text, card_data):
     
     found_sentences = []
     if has_nsfw_tag:
-        found_sentences.append(f'标签�? {", ".join(t for t in tags if t.lower() in nsfw_tags)}')
+        found_sentences.append(f'标签含: {", ".join(t for t in tags if t.lower() in nsfw_tags)}')
     
     sentences = re.split(r'[.。\n]', all_text)
     for pattern, pattern_type in warning_patterns:
@@ -195,8 +198,8 @@ def check_content_warning(api_data, tags, readme_text, card_data):
     
     if found_sentences:
         unique = list(dict.fromkeys(found_sentences))
-        return '�?, '; '.join(unique[:3])
-    return '�?, '/'
+        return '是', '; '.join(unique[:3])
+    return '否', '/'
 
 
 def llm_classify_combined(dataset_id, readme_text, tags, card_data, task_categories, modalities, data_preview):
@@ -205,17 +208,17 @@ def llm_classify_combined(dataset_id, readme_text, tags, card_data, task_categor
     preview_empty = data_preview is None or len(data_preview.get('samples', [])) == 0
     
     if readme_empty and preview_empty:
-        return '非榜�?, '/', '/', '/'
+        return '非榜单', '/', '/', '/'
     
     tags_lower = [str(t).lower() for t in tags]
     has_robotics = any('robot' in t for t in tags_lower)
     has_multimodal_tag = any(t in ['multimodal', 'image', 'audio', 'video'] for t in tags_lower) or \
                           any(t.startswith('modality:') and any(m in t for m in ['image', 'audio', 'video']) for t in tags_lower)
     
-    readme_snippet = readme_text[:1500] if readme_text else '(�?README)'
-    tags_str = ', '.join(tags[:30]) if tags else '(�?'
-    tasks_str = ', '.join(task_categories) if task_categories else '(�?'
-    modalities_str = ', '.join(modalities) if modalities else '(�?'
+    readme_snippet = readme_text[:1500] if readme_text else '(无 README)'
+    tags_str = ', '.join(tags[:30]) if tags else '(无)'
+    tasks_str = ', '.join(task_categories) if task_categories else '(无)'
+    modalities_str = ', '.join(modalities) if modalities else '(无)'
     
     card_desc = ''
     if isinstance(card_data, dict):
@@ -229,8 +232,9 @@ def llm_classify_combined(dataset_id, readme_text, tags, card_data, task_categor
         for i, sample in enumerate(data_preview['samples'][:3]):
             preview_text += f"  Row {i+1}: {sample}\n"
 
-    prompt = f"""根据以下HuggingFace数据集信息，同时判断两个分类，只返回JSON�?
-数据�? {dataset_id}
+    prompt = f"""根据以下HuggingFace数据集信息，同时判断两个分类，只返回JSON：
+
+数据集: {dataset_id}
 Tasks: {tasks_str}
 Modalities: {modalities_str}
 Tags: {tags_str}
@@ -247,26 +251,29 @@ README摘要:
 
 1. **榜单类型**（四选一）：
 - benchmark榜单: 数据集本身是benchmark/测评基准
-- 名字含bench�? 仓库名含bench但README为空
+- 名字含bench类: 仓库名含bench但README为空
 - 其他榜单: 包含评测内容但不是标准benchmark
-- 非榜�? 训练数据
+- 非榜单: 训练数据
 
 2. **Agent类型**（六选一）：
-- 代码/机器�? 输出代码或控制机器人（代�?机器人算一个标签）
-- 多模�? 每条数据都包含图�?音频/视频
-- 通用: 纯文本任�?- 混合可用: 包含两种或以上不同类�?- 混合不可�? 代码/机器�?+ 多模态，缺乏通用数据
+- 代码/机器人: 输出代码或控制机器人（代码+机器人算一个标签）
+- 多模态: 每条数据都包含图片/音频/视频
+- 通用: 纯文本任务
+- 混合可用: 包含两种或以上不同类别
+- 混合不可用: 代码/机器人 + 多模态，缺乏通用数据
 - 其他: 信息不足
 - /: 无法获取信息
 
-返回JSON格式�?{{
+返回JSON格式：
+{{
   "榜单类型": "...",
   "榜单原句": "...",
   "Agent类型": "...",
   "混合说明": "..."
 }}
 
-榜单原句：如果是benchmark/其他榜单，提取关键词原句（最�?00字符）；否则�?/"
-混合说明：非混合类型�?/"，混合类型注明具体组�?""
+榜单原句：如果是benchmark/其他榜单，提取关键词原句（最多200字符）；否则填"/"
+混合说明：非混合类型填"/"，混合类型注明具体组合"""
 
     try:
         resp = llm_client.chat.completions.create(
@@ -298,18 +305,18 @@ README摘要:
         
         if not result:
             if has_robotics and has_multimodal_tag:
-                return '非榜�?, '/', '混合不可�?, '代码/机器�?多模�?
-            return '非榜�?, '/', '其他', '/'
+                return '非榜单', '/', '混合不可用', '代码/机器人+多模态'
+            return '非榜单', '/', '其他', '/'
         
         benchmark_type = result.get('榜单类型', '') or result.get('\u699c\u5355\u7c7b\u578b', '')
         benchmark_sentence = result.get('榜单原句', '') or result.get('\u699c\u5355\u539f\u53e5', '') or '/'
         agent_type = result.get('Agent类型', '') or result.get('Agent\u7c7b\u578b', '')
         mix_detail = result.get('混合说明', '') or result.get('\u6df7\u5408\u8bf4\u660e', '') or '/'
         
-        valid_benchmark = ['benchmark榜单', '名字含bench�?, '其他榜单', '非榜�?]
-        valid_agent = ['代码/机器�?, '多模�?, '通用', '混合可用', '混合不可�?, '其他', '/']
+        valid_benchmark = ['benchmark榜单', '名字含bench类', '其他榜单', '非榜单']
+        valid_agent = ['代码/机器人', '多模态', '通用', '混合可用', '混合不可用', '其他', '/']
         
-        matched_benchmark = '非榜�?
+        matched_benchmark = '非榜单'
         for std in valid_benchmark:
             if std in benchmark_type:
                 matched_benchmark = std
@@ -322,10 +329,10 @@ README摘要:
                 break
         
         if has_robotics and has_multimodal_tag:
-            matched_agent = '混合不可�?
-            mix_detail = '代码/机器�?多模�?
+            matched_agent = '混合不可用'
+            mix_detail = '代码/机器人+多模态'
         
-        if matched_agent not in ['混合可用', '混合不可�?]:
+        if matched_agent not in ['混合可用', '混合不可用']:
             mix_detail = '/'
         
         return matched_benchmark, benchmark_sentence, matched_agent, mix_detail
@@ -334,22 +341,22 @@ README摘要:
         with print_lock:
             print(f' [LLM error: {e}]', end='')
         if has_robotics and has_multimodal_tag:
-            return '非榜�?, '/', '混合不可�?, '代码/机器�?多模�?
-        return '非榜�?, '/', '其他', '/'
+            return '非榜单', '/', '混合不可用', '代码/机器人+多模态'
+        return '非榜单', '/', '其他', '/'
 
 
 def extract_info(seq, url, dataset_id, api_data, readme_text):
     """提取完整信息"""
     result = {
         '序号': seq, 'URL': url,
-        '发布/更新时间': '/', '数据量级（条�?: '/', '量级等级（条�?: '/',
-        '数据大小（GB�?: '/', '下载�?: '/', '点赞�?: '/',
+        '发布/更新时间': '/', '数据量级（条）': '/', '量级等级（条）': '/',
+        '数据大小（GB）': '/', '下载量': '/', '点赞量': '/',
         'Tags': '/', 'Tasks': '/', 'License': '/',
         '数据类型（文件类型）': '/', '数据格式': '/', '语种': '/',
-        '是否有论�?: '/', '论文arXivURL': '/', '是否有测试集': '/',
-        '榜单类型': '/', '榜单关键词原�?: '/',
+        '是否有论文': '/', '论文arXivURL': '/', '是否有测试集': '/',
+        '榜单类型': '/', '榜单关键词原句': '/',
         'Agent类型': '/', '混合说明': '/',
-        '是否有警�?: '/', '警告原因': '/',
+        '是否有警告': '/', '警告原因': '/',
     }
     if not api_data:
         return result
@@ -365,11 +372,11 @@ def extract_info(seq, url, dataset_id, api_data, readme_text):
 
     downloads = api_data.get('downloads')
     if downloads is not None:
-        result['下载�?] = downloads
+        result['下载量'] = downloads
 
     likes = api_data.get('likes')
     if likes is not None:
-        result['点赞�?] = likes
+        result['点赞量'] = likes
 
     tags = api_data.get('tags', []) or []
     card_data = api_data.get('cardData')
@@ -401,7 +408,7 @@ def extract_info(seq, url, dataset_id, api_data, readme_text):
     from_card = safe_list(card_data.get('size_categories'))
     merged = merge_unique(from_tags, from_card)
     if merged:
-        result['量级等级（条�?] = ','.join(merged)
+        result['量级等级（条）'] = ','.join(merged)
 
     from_tags = extract_from_tags(tags, 'modality')
     from_card = safe_list(card_data.get('modality'))
@@ -435,29 +442,61 @@ def extract_info(seq, url, dataset_id, api_data, readme_text):
                 download_size = (download_size or 0) + ds
     if download_size is not None and download_size > 0:
         try:
-            result['数据大小（GB�?] = round(download_size / (1024 ** 3), 4)
+            result['数据大小（GB）'] = round(download_size / (1024 ** 3), 4)
         except:
             pass
 
     num_examples_total = 0
+    # 来源1: cardData.dataset_info.splits（支持 list 和 dict 两种格式）
     for di in dataset_info_list:
-        splits_info = di.get('splits', [])
+        splits_info = di.get('splits', {})
         if isinstance(splits_info, list):
             for s in splits_info:
-                if isinstance(s, dict) and s.get('num_examples'):
-                    num_examples_total += s['num_examples']
+                if isinstance(s, dict):
+                    n = s.get('num_examples') or s.get('num_rows') or 0
+                    num_examples_total += int(n)
+        elif isinstance(splits_info, dict):
+            for split_name, split_val in splits_info.items():
+                if isinstance(split_val, dict):
+                    n = split_val.get('num_examples') or split_val.get('num_rows') or 0
+                    num_examples_total += int(n)
+                elif isinstance(split_val, (int, float)):
+                    num_examples_total += int(split_val)
+
+    # 来源2: datasets-server /info 接口（cardData 拿不到时 fallback）
+    if num_examples_total == 0:
+        try:
+            info_resp = requests.get(
+                'https://datasets-server.huggingface.co/info',
+                params={'dataset': dataset_id},
+                timeout=15
+            )
+            if info_resp.status_code == 200:
+                server_info = info_resp.json().get('dataset_info', {})
+                for config_name, config_val in server_info.items():
+                    if not isinstance(config_val, dict):
+                        continue
+                    splits_dict = config_val.get('splits', {})
+                    if isinstance(splits_dict, dict):
+                        for sp_name, sp_val in splits_dict.items():
+                            if isinstance(sp_val, dict):
+                                n = sp_val.get('num_examples') or sp_val.get('num_rows') or 0
+                                num_examples_total += int(n)
+        except:
+            pass
+
     if num_examples_total > 0:
-        result['数据量级（条�?] = num_examples_total
+        result['数据量级（条）'] = num_examples_total
 
     arxiv_ids = extract_from_tags(tags, 'arxiv')
     card_arxiv = safe_list(card_data.get('arxiv'))
     all_arxiv = merge_unique(arxiv_ids, card_arxiv)
     if all_arxiv:
-        result['是否有论�?] = '�?
+        result['是否有论文'] = '是'
         urls = [f'https://arxiv.org/abs/{aid}' for aid in all_arxiv]
         result['论文arXivURL'] = ','.join(urls)
     else:
-        result['是否有论�?] = '�?
+        result['是否有论文'] = '否'
 
     has_test = False
     for di in dataset_info_list:
@@ -469,27 +508,28 @@ def extract_info(seq, url, dataset_id, api_data, readme_text):
                     break
         if has_test:
             break
-    result['是否有测试集'] = '�? if has_test else '/'
+    result['是否有测试集'] = '是' if has_test else '/'
 
-    # 榜单 + Agent（合�?LLM�?    data_preview = fetch_data_preview(dataset_id)
+    # 榜单 + Agent（合并 LLM）
+    data_preview = fetch_data_preview(dataset_id)
     benchmark_type, benchmark_sentence, agent_type, mix_detail = llm_classify_combined(
         dataset_id, readme_text, tags, card_data, task_categories, modalities, data_preview
     )
     result['榜单类型'] = benchmark_type
-    result['榜单关键词原�?] = benchmark_sentence
+    result['榜单关键词原句'] = benchmark_sentence
     result['Agent类型'] = agent_type
     result['混合说明'] = mix_detail
 
     # 内容安全
     has_warning, warning_reason = check_content_warning(api_data, tags, readme_text, card_data)
-    result['是否有警�?] = has_warning
+    result['是否有警告'] = has_warning
     result['警告原因'] = warning_reason
 
     return result
 
 
 def process_dataset(idx, total, seq, url):
-    """处理单个数据集（并发函数�?""
+    """处理单个数据集（并发函数）"""
     dataset_id = url.replace('https://huggingface.co/datasets/', '')
     
     with print_lock:
@@ -521,7 +561,7 @@ if __name__ == '__main__':
     if len(sys.argv) > 1:
         filename = sys.argv[1].strip()
     else:
-        print('请输入桌面上�?Excel 文件名（�?.xlsx 后缀�?)
+        print('请输入桌面上的 Excel 文件名（含 .xlsx 后缀）')
         filename = input('> ').strip()
 
     if not filename.endswith('.xlsx'):
@@ -529,13 +569,13 @@ if __name__ == '__main__':
 
     input_path = os.path.join(desktop, filename)
     if not os.path.exists(input_path):
-        print(f'错误: 文件不存�?- {input_path}')
+        print(f'错误: 文件不存在 - {input_path}')
         exit(1)
 
     df = pd.read_excel(input_path, engine='openpyxl')
     total = len(df)
     print(f'Loaded {total} rows')
-    print(f'并发�? {CONCURRENCY}')
+    print(f'并发度: {CONCURRENCY}')
 
     start_time = time.time()
     results = []
@@ -575,4 +615,3 @@ if __name__ == '__main__':
         for e in errors:
             print(f'  - {e}')
     print(f'{"="*60}')
-
