@@ -58,8 +58,12 @@
 **已建立的任务文件夹：**
 - `huggingface-dataset-extractor/` - HuggingFace 数据集元信息提取工具
   - `v1/` - 原版（串行，双 LLM 调用，API Key 硬编码）
-  - `v2/` - 优化版（合并 LLM 调用，配置外部化 config.yaml）
-  - `v3/` - 并发版（多线程并发，合并 LLM，配置外部化）
+  - `v2/` - **优化版（推荐使用）** - 串行处理，合并 LLM 调用，配置外部化 config.yaml
+  - `v3/` - 并发版（多线程并发，合并 LLM，配置外部化）**⚠️ 不推荐：并发易触发 API 速率限制**
+
+**重要决定：v2 串行版优先使用**（2026-06-26）
+- 原因：并发版（v3）网络请求容易触发 429 速率限制，稳定性差
+- 规则：今后默认使用 v2，除非用户明确要求并发
 
 ---
 
@@ -85,10 +89,47 @@
 
 ---
 
+## 每周自动部署包推送
+
+**建立时间：** 2026-06-26
+**Cron ID：** b8729b5d-86e0-4592-92ac-c0d5b4e32772
+
+**机制：**
+- 每周日凌晨3点自动运行
+- 脚本：`scripts/auto_package_push.py`
+- 打包当前 workspace 配置和记忆（脱敏版）
+- 推送到 GitHub 仓库 `toolbox-scripts/myagent/latest-deploy/`
+- 用户在新电脑 clone 仓库后即可部署
+
+**脱敏规则：**
+- 智谱 API Key → `${ZHIPU_API_KEY}`
+- LiteLLM API Key → `${API_KEY}`
+- GitHub Token → `${GITHUB_TOKEN}`
+- Gateway Token → `${GATEWAY_TOKEN}`
+
+**用户在新电脑部署后必须手动修改：**
+1. `config/openclaw.json` 中的 apiKey 和 gateway token
+2. HuggingFace 工具的 config.yaml 中的智谱 Key
+3. 运行 `gh auth login` 配置 GitHub 认证
+4. 配置 Git 代理（如需要）
+
+---
+
 ## 个人偏好
 
 _(待补充)_
 
 ## 重要决定
 
-_(待补充)_
+### HuggingFace 数据集提取工具优化记录
+
+**2026-06-26: 数据量级(条)字段提取优化**
+- **问题：** 原逻辑只处理 list 格式的 splits，漏掉 dict 格式（HF 常见：`{"train": {"num_examples": ...}}`）
+- **优化内容：**
+  1. 支持 dict 格式的 splits 提取
+  2. 兼容 `num_rows` 字段（部分数据集用这个而非 `num_examples`）
+  3. 添加 fallback：cardData 无数据时调用 datasets-server `/info` 接口
+- **测试结果：**
+  - `zeta0707/clean_desk`: 82,338 条 ✓
+  - `plugnplai/plugins-dataset-sample`: 96 条 ✓
+- **已同步：** v2 和 v3 都已更新并 push 到 `toolbox-scripts` 仓库
