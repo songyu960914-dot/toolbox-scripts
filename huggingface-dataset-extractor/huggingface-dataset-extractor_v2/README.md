@@ -1,45 +1,44 @@
-# HuggingFace 数据集信息提取工具
+# HuggingFace Dataset Extractor v2
 
-本文件夹包含从 HuggingFace 批量提取数据集元信息的脚本和文档。
+串行版：逐条处理 + 合并 LLM 调用 + 配置外部化。**推荐使用版本。**
 
 ## 文件说明
 
-- **run_workbook.py** - 主脚本，提取17个元数据字段 + 榜单类型 + Agent类型
-- **run_agent_type.py** - 单独的 Agent 类型判断脚本（包含数据预览功能）
-- **实现逻辑说明.md** - 详细的实现逻辑和字段判断规则
+- `run_workbook.py` - 主脚本（完整字段提取 + 榜单/Agent/警告判断）
+- `config.yaml` - 配置文件（API Key、请求参数、数据预览设置）
+
+## 特性
+
+- 串行处理，避免 API 速率限制（429错误）
+- 榜单判断 + Agent判断合并为一次 LLM 调用，节省成本
+- 配置外部化（config.yaml），API Key 与代码分离
+- 双源字段提取（tags + cardData 去重合并）
+- 内容警告检测（排除作者呼吁式语句）
+- 数据预览辅助判断
 
 ## 使用方式
 
 ```bash
-# 完整提取（所有字段）
 python run_workbook.py 工作簿1
-
-# 仅提取 Agent 类型
-python run_agent_type.py 工作簿1
 ```
 
-## 功能特性
+输入文件放桌面，格式为 xlsx，第一列序号，第二列 URL。
 
-- 17个元信息字段：发布时间、下载量、点赞量、License、Tasks、数据大小、语种等
-- 榜单类型判断：benchmark榜单、名字含bench类、其他榜单、非榜单
-- Agent类型判断：代码/机器人、多模态、通用、通用混合、混合不可用
-  - **使用 GLM-5-turbo LLM 推理**
-  - **整合数据预览**（列名 + 前5行样本）提升准确率
-- 内容安全检测：gated dataset、NSFW、敏感内容警告（已记录在文档，待实现）
+## 输出字段
 
-## 依赖
+序号、URL、发布/更新时间、数据量级（条）、量级等级（条）、数据大小（GB）、
+下载量、点赞量、Tags、Tasks、License、数据类型（文件类型）、数据格式、语种、
+是否有论文、论文arXivURL、是否有测试集、榜单类型、榜单关键词原句、
+Agent类型、混合说明、是否有警告、警告原因
 
-- Python 3.8+
-- pandas, openpyxl, requests, openai
+## 配置
 
-## 成本与性能
+编辑 `config.yaml`：
+- `llm.api_key`: 智谱 API Key（本地填真实值，GitHub 上用 `${ZHIPU_API_KEY}`）
+- `requests.sleep_between_items`: 每条数据间隔秒数（默认 1.5s）
+- `requests.timeout`: 请求超时秒数
 
-- **成本**: 每25条数据集约 ¥0.3-0.4（智谱 GLM-5-turbo API）
-- **速度**: 约5-6秒/条，25条约2.5-3分钟
+## 性能
 
-## 版本历史
-
-- **v2.1** (2026-06-25)
-  - 主脚本整合数据预览功能，与专项脚本逻辑统一
-  - 新增"其他榜单"英文关键词支持
-  - LLM 判断优先考虑实际数据内容（category列等）
+- 30条约 10-12 分钟（串行 + 间隔控制）
+- LLM 成本约 ¥0.3-0.5/30条
