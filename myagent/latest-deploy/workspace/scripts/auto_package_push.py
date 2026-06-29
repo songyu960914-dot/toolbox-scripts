@@ -141,8 +141,8 @@ def package_deploy():
                     shutil.copy(script_file, dest)
         print('  ✓ scripts/')
     
-    # === 5. 复制 huggingface-dataset-extractor ===
-    hf_src = WORKSPACE / 'huggingface-dataset-extractor'
+    # === 5. 复制 huggingface-dataset-extractor（从 toolbox-scripts 仓库中读取）===
+    hf_src = TOOLBOX_REPO / 'huggingface-dataset-extractor'
     if hf_src.exists():
         hf_dst = DEPLOY_TARGET / 'workspace' / 'huggingface-dataset-extractor'
         hf_dst.mkdir(parents=True)
@@ -223,33 +223,69 @@ latest-deploy/
     return True
 
 
+def sanitize_toolbox_configs():
+    """推送前脱敏 toolbox-scripts 下的 config.yaml，返回原始内容用于恢复"""
+    originals = {}
+    hf_dir = TOOLBOX_REPO / 'huggingface-dataset-extractor'
+    if not hf_dir.exists():
+        return originals
+    
+    for config_file in hf_dir.rglob('config.yaml'):
+        content = config_file.read_text(encoding='utf-8')
+        originals[config_file] = content
+        sanitized = sanitize_content(content, config_file.name)
+        config_file.write_text(sanitized, encoding='utf-8')
+        print(f'  脱敏: {config_file.relative_to(TOOLBOX_REPO)}')
+    
+    return originals
+
+
+def restore_toolbox_configs(originals):
+    """推送后还原本地 config.yaml 的真实 key"""
+    for config_file, content in originals.items():
+        config_file.write_text(content, encoding='utf-8')
+        print(f'  还原: {config_file.relative_to(TOOLBOX_REPO)}')
+
+
 def git_push():
     """提交并推送到 GitHub"""
     os.chdir(TOOLBOX_REPO)
     
-    # 检查是否有变更
-    result = subprocess.run(['git', 'add', 'myagent/latest-deploy/'],
-                          capture_output=True, text=True)
+    # 1. 脱敏 toolbox 下的 config.yaml
+    print('  脱敏 config 文件...')
+    originals = sanitize_toolbox_configs()
     
+    # 2. add 部署包 + toolbox 改动
+    subprocess.run(['git', 'add', 'myagent/latest-deploy/'],
+                   capture_output=True, text=True)
+    subprocess.run(['git', 'add', 'huggingface-dataset-extractor/'],
+                   capture_output=True, text=True)
+    
+    # 检查是否有变更
     result = subprocess.run(['git', 'status', '--porcelain'],
                           capture_output=True, text=True)
     
     if not result.stdout.strip():
         print('  没有变更，跳过推送')
+        restore_toolbox_configs(originals)
         return True
     
     # 提交
-    msg = f'auto: weekly deploy package update ({datetime.now().strftime("%Y-%m-%d")})'
+    msg = f'auto: deploy package + toolbox updates ({datetime.now().strftime("%Y-%m-%d")})'
     subprocess.run(['git', 'commit', '-m', msg], capture_output=True, text=True)
     
     # 推送
     result = subprocess.run(['git', 'push'], capture_output=True, text=True, timeout=60)
     if result.returncode == 0:
         print('  ✓ 已推送到 GitHub')
-        return True
     else:
         print(f'  ✗ 推送失败: {result.stderr}')
-        return False
+    
+    # 3. 无论推送成功失败，都还原本地真实 key
+    print('  还原本地 config...')
+    restore_toolbox_configs(originals)
+    
+    return result.returncode == 0
 
 
 if __name__ == '__main__':

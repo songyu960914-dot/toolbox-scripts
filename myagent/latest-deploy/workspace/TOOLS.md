@@ -92,9 +92,15 @@ python scripts/safe_delete.py cleanup [天数]
 **运行方式：** Cron 每天 17:00 自动执行（ID: `b8729b5d-86e0-4592-92ac-c0d5b4e32772`）
 
 **功能：**
-- 打包 workspace 配置和记忆文件
-- 脱敏处理（API Key 替换为环境变量占位符）
-- 推送到 GitHub: `toolbox-scripts/myagent/latest-deploy/`
+- 打包 workspace 配置和记忆文件 → 推送到 `toolbox-scripts/myagent/latest-deploy/`
+- 检测 `toolbox-scripts/huggingface-dataset-extractor/` 下的改动并一起推送
+- 推送前自动脱敏 config.yaml，推送后自动还原本地真实 key
+
+**推送流程：**
+1. 打包部署文件（workspace 核心 md + scripts + HF 工具脱敏版）
+2. 脱敏 `huggingface-dataset-extractor/*/config.yaml`（真实 key → 占位符）
+3. `git add` + `git commit` + `git push`
+4. 推送完毕后还原本地 config.yaml（写回真实 key，确保本地正常使用）
 
 **脱敏规则：**
 - 智谱 API Key → `${ZHIPU_API_KEY}`

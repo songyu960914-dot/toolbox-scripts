@@ -51,6 +51,7 @@ Capture what matters. Decisions, context, things to remember. Skip the secrets u
 - Don't run destructive commands without asking.
 - **Use safe delete** → `python scripts/safe_delete.py delete <path>` instead of Remove-Item/rm
 - Files go to `trash/` (compressed) and stay 3 days before auto-cleanup
+- **所有文件默认放 workspace，不放桌面**，除非用户特别要求
 - When in doubt, ask.
 
 ## External vs Internal
@@ -209,6 +210,14 @@ Think of it like a human reviewing their journal and updating their mental model
 The goal: Be helpful without being annoying. Check in a few times a day, do useful background work, but respect quiet time.
 
 ## 工作流程规范
+
+### 文档同步规则
+
+**任何时候改了脚本、配置、流程，必须同步更新对应的文档描述（TOOLS.md、README.md 等）。不要等着以后补，改完代码就改文档。**
+
+### 任务完成回复
+
+**每次任务完成后，必须给用户一个明确的回复，说明完成情况。不要静默结束。**
 
 ### 每日工作日志
 
