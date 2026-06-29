@@ -47,9 +47,9 @@ Things like:
 
 **GitHub 仓库:** https://github.com/songyu960914-dot/toolbox-scripts
 
-**执行（推荐 v3 并发版）：**
+**执行（推荐 v2 串行版）：**
 ```bash
-cd huggingface-dataset-extractor/huggingface-dataset-extractor_v3
+cd toolbox-scripts/huggingface-dataset-extractor/huggingface-dataset-extractor_v2
 python run_workbook.py 工作簿1
 ```
 
@@ -84,6 +84,29 @@ python scripts/safe_delete.py cleanup [天数]
 **压缩率：** 一般文本文件可节省 60-80% 空间。
 
 **自动清理：** heartbeat 每天检查一次，自动清理超过3天的文件。
+
+## 自动部署包推送
+
+**脚本：** `scripts/auto_package_push.py`
+
+**运行方式：** Cron 每天 17:00 自动执行（ID: `b8729b5d-86e0-4592-92ac-c0d5b4e32772`）
+
+**功能：**
+- 打包 workspace 配置和记忆文件
+- 脱敏处理（API Key 替换为环境变量占位符）
+- 推送到 GitHub: `toolbox-scripts/myagent/latest-deploy/`
+
+**脱敏规则：**
+- 智谱 API Key → `${ZHIPU_API_KEY}`
+- LiteLLM API Key → `${API_KEY}`
+- GitHub Token → `${GITHUB_TOKEN}`
+- Gateway Token → `${GATEWAY_TOKEN}`
+
+**新电脑部署后手动配置：**
+1. 替换 `config/openclaw.json` 中的 apiKey 和 gateway token
+2. 替换 HuggingFace 工具的 config.yaml 中的智谱 Key
+3. 运行 `gh auth login` 配置 GitHub 认证
+4. 配置 Git 代理（如需要）
 
 ---
 

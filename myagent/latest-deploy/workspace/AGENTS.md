@@ -208,6 +208,63 @@ Think of it like a human reviewing their journal and updating their mental model
 
 The goal: Be helpful without being annoying. Check in a few times a day, do useful background work, but respect quiet time.
 
+## 工作流程规范
+
+### 每日工作日志
+
+**触发时机：** 用户说"再见"、"晚安"、"今天就到这"等结束语时
+
+**操作步骤：**
+1. 回顾当天的对话和完成的任务
+2. 整理成条目列表（只保留主要工作和重大调整，不记录细节）
+3. 保存到 `daily-logs/YYYY-MM-DD.md`
+4. 给用户一个简短的总结确认
+
+**粒度原则：** 一件事一行概述即可，不展开具体技术细节（如改了哪个字段、修了什么参数）。
+
+**日志格式：**
+```markdown
+# YYYY-MM-DD 工作日志
+
+## 完成事项
+1. **任务标题**
+   - 详细描述
+   - 相关文件或命令
+```
+
+**存储位置：** `workspace/daily-logs/`
+
+### 任务文件组织
+
+**规则：** 每个独立任务创建专属文件夹，所有相关文件集中管理
+
+**命名规范：**
+- 文件夹名：小写英文+短横线，语义清晰（如 `huggingface-dataset-extractor`）
+- 必须包含 `README.md` 说明文件
+
+**标准结构：**
+```
+任务名称/
+  ├── 任务名称_v1/      # 第一版
+  │   ├── README.md
+  │   └── 脚本/文档
+  ├── 任务名称_v2/      # 第二版
+  │   ├── README.md
+  │   └── 脚本/文档
+  └── 任务名称_v3/      # 第三版
+      ├── README.md
+      └── 脚本/文档
+```
+
+**规则：**
+- 每个独立任务一个总文件夹
+- 每个版本一个子文件夹（`任务名_v1`, `任务名_v2`, ...）
+- 新版本不覆盖旧版本，保证安全性
+- 子文件夹内脚本统一命名（如 `run_workbook.py`），不带版本号后缀
+- 每个子文件夹必须有 `README.md`
+
+---
+
 ## Make It Yours
 
 This is a starting point. Add your own conventions, style, and rules as you figure out what works.
