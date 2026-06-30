@@ -1,12 +1,11 @@
 # -*- coding: utf-8 -*-
 """
 HuggingFace Dataset Metadata Extractor - Serial Version (v2)
-串行版：逐条处理 + 合并 LLM 调用 + 配置外部化
-推荐使用版本，避免并发导致的 API 速率限制问题。
+串行版：逐条处理 + 配置外部化
+无 LLM 调用版本，只提取 HuggingFace API 可直接获取的字段。
 """
 import os, sys, time, re, requests, pandas as pd, yaml, json
 from datetime import datetime
-from openai import OpenAI
 
 
 def load_config():
@@ -14,24 +13,11 @@ def load_config():
     config_path = os.path.join(os.path.dirname(__file__), 'config.yaml')
     with open(config_path, 'r', encoding='utf-8') as f:
         config = yaml.safe_load(f)
-    
-    api_key = config['llm']['api_key']
-    if api_key.startswith('${') and api_key.endswith('}'):
-        env_var = api_key[2:-1]
-        api_key = os.environ.get(env_var, api_key)
-    
-    return config, api_key
+    return config
 
 
-config, api_key = load_config()
-llm_config = config['llm']
+config = load_config()
 req_config = config['requests']
-
-# LLM 客户端
-llm_client = OpenAI(
-    base_url=llm_config['base_url'],
-    api_key=api_key
-)
 
 
 def extract_from_tags(tags, prefix):
@@ -87,78 +73,8 @@ def fetch_readme(dataset_id):
     return ''
 
 
-def fetch_data_preview(dataset_id):
-    """获取数据集前几行预览，包括列名和样本值"""
-    base_url = 'https://datasets-server.huggingface.co'
-    max_retries = req_config['retry_max']
-    
-    for attempt in range(max_retries):
-        try:
-            resp = requests.get(
-                f'{base_url}/first-rows',
-                params={'dataset': dataset_id, 'config': 'default', 'split': 'train'},
-                timeout=req_config['timeout']
-            )
-            if resp.status_code != 200:
-                # 尝试获取正确的 config/split
-                info_resp = requests.get(
-                    f'{base_url}/info',
-                    params={'dataset': dataset_id},
-                    timeout=15
-                )
-                if info_resp.status_code == 200:
-                    info = info_resp.json()
-                    dataset_info = info.get('dataset_info', {})
-                    if dataset_info:
-                        first_config = list(dataset_info.keys())[0]
-                        splits = dataset_info[first_config].get('splits', {})
-                        first_split = list(splits.keys())[0] if splits else 'train'
-                    else:
-                        first_config, first_split = 'default', 'train'
-                else:
-                    first_config, first_split = 'default', 'train'
-                
-                resp = requests.get(
-                    f'{base_url}/first-rows',
-                    params={'dataset': dataset_id, 'config': first_config, 'split': first_split},
-                    timeout=req_config['timeout']
-                )
-            
-            if resp.status_code == 200:
-                data = resp.json()
-                rows = data.get('rows', [])
-                features = data.get('features', [])
-                
-                col_names = [f.get('name', '') for f in features]
-                sample_rows = []
-                max_cols = config['data_preview']['max_columns']
-                max_len = config['data_preview']['max_cell_length']
-                max_rows = config['data_preview']['max_rows']
-                
-                for row_data in rows[:max_rows]:
-                    row = row_data.get('row', {})
-                    row_summary = {}
-                    for col in col_names[:max_cols]:
-                        val = row.get(col, '')
-                        val_str = str(val)
-                        if len(val_str) > max_len:
-                            val_str = val_str[:max_len] + '...'
-                        row_summary[col] = val_str
-                    sample_rows.append(row_summary)
-                
-                return {'columns': col_names, 'samples': sample_rows}
-            break
-        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
-            if attempt < max_retries - 1:
-                time.sleep(req_config['retry_interval'] * (attempt + 1))
-            continue
-        except:
-            break
-    return None
-
-
 def check_content_warning(api_data, tags, readme_text, card_data):
-    """检测内容警告（排除作者呼吁式语句）"""
+    """检测内容警告"""
     all_text = readme_text if readme_text else ''
     if isinstance(card_data, dict):
         desc = card_data.get('description', '') or ''
@@ -201,149 +117,8 @@ def check_content_warning(api_data, tags, readme_text, card_data):
     return '否', '/'
 
 
-def llm_classify_combined(dataset_id, readme_text, tags, card_data, task_categories, modalities, data_preview):
-    """合并 LLM 调用：同时判断榜单类型和 Agent 类型"""
-    readme_empty = not readme_text or len(readme_text.strip().replace('---', '').strip()) < 50
-    preview_empty = data_preview is None or len(data_preview.get('samples', [])) == 0
-    
-    if readme_empty and preview_empty:
-        return '非榜单', '/', '/', '/'
-    
-    tags_lower = [str(t).lower() for t in tags]
-    has_robotics = any('robot' in t for t in tags_lower)
-    has_multimodal_tag = any(t in ['multimodal', 'image', 'audio', 'video'] for t in tags_lower) or \
-                          any(t.startswith('modality:') and any(m in t for m in ['image', 'audio', 'video']) for t in tags_lower)
-    
-    readme_snippet = readme_text[:1500] if readme_text else '(无 README)'
-    tags_str = ', '.join(tags[:30]) if tags else '(无)'
-    tasks_str = ', '.join(task_categories) if task_categories else '(无)'
-    modalities_str = ', '.join(modalities) if modalities else '(无)'
-    
-    card_desc = ''
-    if isinstance(card_data, dict):
-        card_desc = card_data.get('description', '') or ''
-        card_desc = card_desc[:500]
-
-    preview_text = '(无法获取)'
-    if data_preview:
-        cols = data_preview['columns']
-        preview_text = f"列名: {', '.join(cols[:15])}\n"
-        for i, sample in enumerate(data_preview['samples'][:3]):
-            preview_text += f"  Row {i+1}: {sample}\n"
-
-    prompt = f"""根据以下HuggingFace数据集信息，同时判断两个分类，只返回JSON：
-
-数据集: {dataset_id}
-Tasks: {tasks_str}
-Modalities: {modalities_str}
-Tags: {tags_str}
-描述: {card_desc}
-
-README摘要:
-{readme_snippet}
-
-数据预览:
-{preview_text}
-
----
-请判断：
-
-1. **榜单类型**（四选一）：
-- benchmark榜单: 数据集本身是benchmark/测评基准
-- 名字含bench类: 仓库名含bench但README为空
-- 其他榜单: 包含评测内容但不是标准benchmark
-- 非榜单: 训练数据
-
-2. **Agent类型**（六选一）：
-- 代码/机器人: 输出代码或控制机器人（代码+机器人算一个标签）
-- 多模态: 每条数据都包含图片/音频/视频
-- 通用: 纯文本任务
-- 混合可用: 包含两种或以上不同类别
-- 混合不可用: 代码/机器人 + 多模态，缺乏通用数据
-- 其他: 信息不足
-- /: 无法获取信息
-
-返回JSON格式：
-{{
-  "榜单类型": "...",
-  "榜单原句": "...",
-  "Agent类型": "...",
-  "混合说明": "..."
-}}
-
-榜单原句：如果是benchmark/其他榜单，提取关键词原句（最多200字符）；否则填"/"
-混合说明：非混合类型填"/"，混合类型注明具体组合"""
-
-    try:
-        resp = llm_client.chat.completions.create(
-            model=llm_config['model'],
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=llm_config['max_tokens'],
-            temperature=llm_config['temperature']
-        )
-        msg = resp.choices[0].message
-        content = msg.content or ''
-        reasoning = getattr(msg, 'reasoning_content', '') or ''
-        
-        result = None
-        for text in [content, reasoning]:
-            matches = [
-                re.search(r'\{[^{}]*榜单[^{}]*Agent[^{}]*\}', text),
-                re.search(r'\{.*?"榜单类型".*?"Agent类型".*?\}', text, re.DOTALL),
-            ]
-            for match in matches:
-                if match:
-                    try:
-                        result = json.loads(match.group())
-                        break
-                    except:
-                        continue
-            if result:
-                break
-        
-        if not result:
-            if has_robotics and has_multimodal_tag:
-                return '非榜单', '/', '混合不可用', '代码/机器人+多模态'
-            return '非榜单', '/', '其他', '/'
-        
-        benchmark_type = result.get('榜单类型', '')
-        benchmark_sentence = result.get('榜单原句', '') or '/'
-        agent_type = result.get('Agent类型', '')
-        mix_detail = result.get('混合说明', '') or '/'
-        
-        valid_benchmark = ['benchmark榜单', '名字含bench类', '其他榜单', '非榜单']
-        valid_agent = ['代码/机器人', '多模态', '通用', '混合可用', '混合不可用', '其他', '/']
-        
-        matched_benchmark = '非榜单'
-        for std in valid_benchmark:
-            if std in benchmark_type:
-                matched_benchmark = std
-                break
-        
-        matched_agent = '其他'
-        for std in valid_agent:
-            if std in agent_type:
-                matched_agent = std
-                break
-        
-        if has_robotics and has_multimodal_tag:
-            matched_agent = '混合不可用'
-            mix_detail = '代码/机器人+多模态'
-        
-        if matched_agent not in ['混合可用', '混合不可用']:
-            mix_detail = '/'
-        
-        return matched_benchmark, benchmark_sentence, matched_agent, mix_detail
-        
-    except Exception as e:
-        print(f' [LLM error: {e}]', end='')
-        if has_robotics and has_multimodal_tag:
-            return '非榜单', '/', '混合不可用', '代码/机器人+多模态'
-        return '非榜单', '/', '其他', '/'
-
-
 def extract_info(seq, url, dataset_id, api_data, readme_text):
-    """提取完整信息"""
+    """提取完整信息（无 LLM）"""
     result = {
         '序号': seq, 'URL': url,
         '发布/更新时间': '/', '数据量级（条）': '/', '量级等级（条）': '/',
@@ -351,8 +126,6 @@ def extract_info(seq, url, dataset_id, api_data, readme_text):
         'Tags': '/', 'Tasks': '/', 'License': '/',
         '数据类型（文件类型）': '/', '数据格式': '/', '语种': '/',
         '是否有论文': '/', '论文arXivURL': '/', '是否有测试集': '/',
-        '榜单类型': '/', '榜单关键词原句': '/',
-        'Agent类型': '/', '混合说明': '/',
         '是否有警告': '/', '警告原因': '/',
     }
     if not api_data:
@@ -431,40 +204,22 @@ def extract_info(seq, url, dataset_id, api_data, readme_text):
     if merged:
         result['Tags'] = ','.join(merged)
 
-    # 数据大小（对应网页 "Total file size"）
-    # 来源1: datasets-server /size 的 num_bytes_original_files（精确的数据文件大小）
-    # 来源2: API 的 usedStorage（仓库总存储，含大文件如视频/图片）
-    # 逻辑: 取两者较大值（usedStorage 含非数据文件，original_files 可能漏掉非 parquet 文件）
-    file_size = None
-    original_bytes = None
-    try:
-        size_resp = requests.get(
-            'https://datasets-server.huggingface.co/size',
-            params={'dataset': dataset_id},
-            timeout=15
-        )
-        if size_resp.status_code == 200:
-            size_data = size_resp.json().get('size', {}).get('dataset', {})
-            original_bytes = size_data.get('num_bytes_original_files')
-    except:
-        pass
-    used_storage = api_data.get('usedStorage')
-    # 取较大值
-    candidates = [v for v in [original_bytes, used_storage] if v and v > 0]
-    if candidates:
-        file_size = max(candidates)
+    # 数据大小（直接用主 API 的 usedStorage）
+    file_size = api_data.get('usedStorage')
     # fallback: cardData.download_size
-    if not file_size:
+    if not file_size or file_size <= 0:
         file_size = card_data.get('download_size')
     # fallback: dataset_info 中的 download_size
-    if not file_size:
+    if not file_size or file_size <= 0:
+        total_ds = 0
         for di in dataset_info_list:
             ds = di.get('download_size')
             if ds:
-                file_size = (file_size or 0) + ds
+                total_ds += ds
+        if total_ds > 0:
+            file_size = total_ds
     if file_size and file_size > 0:
         try:
-            # 1024 进制换算，统一输出 GB，保留 6 位小数
             gb_val = file_size / (1024 ** 3)
             result['数据大小（GB）'] = round(gb_val, 6)
         except:
@@ -472,7 +227,6 @@ def extract_info(seq, url, dataset_id, api_data, readme_text):
 
     # 数据量级
     num_examples_total = 0
-    # 来源1: cardData.dataset_info.splits（支持 list 和 dict 两种格式）
     for di in dataset_info_list:
         splits_info = di.get('splits', {})
         if isinstance(splits_info, list):
@@ -487,28 +241,6 @@ def extract_info(seq, url, dataset_id, api_data, readme_text):
                     num_examples_total += int(n)
                 elif isinstance(split_val, (int, float)):
                     num_examples_total += int(split_val)
-
-    # 来源2: datasets-server /info 接口（cardData 拿不到时 fallback）
-    if num_examples_total == 0:
-        try:
-            info_resp = requests.get(
-                'https://datasets-server.huggingface.co/info',
-                params={'dataset': dataset_id},
-                timeout=15
-            )
-            if info_resp.status_code == 200:
-                server_info = info_resp.json().get('dataset_info', {})
-                for config_name, config_val in server_info.items():
-                    if not isinstance(config_val, dict):
-                        continue
-                    splits_dict = config_val.get('splits', {})
-                    if isinstance(splits_dict, dict):
-                        for sp_name, sp_val in splits_dict.items():
-                            if isinstance(sp_val, dict):
-                                n = sp_val.get('num_examples') or sp_val.get('num_rows') or 0
-                                num_examples_total += int(n)
-        except:
-            pass
 
     if num_examples_total > 0:
         result['数据量级（条）'] = num_examples_total
@@ -533,19 +265,14 @@ def extract_info(seq, url, dataset_id, api_data, readme_text):
                 if isinstance(s, dict) and 'test' in s.get('name', '').lower():
                     has_test = True
                     break
+        elif isinstance(splits_info, dict):
+            for split_name in splits_info.keys():
+                if 'test' in split_name.lower():
+                    has_test = True
+                    break
         if has_test:
             break
     result['是否有测试集'] = '是' if has_test else '/'
-
-    # 榜单 + Agent（合并 LLM 调用）
-    data_preview = fetch_data_preview(dataset_id)
-    benchmark_type, benchmark_sentence, agent_type, mix_detail = llm_classify_combined(
-        dataset_id, readme_text, tags, card_data, task_categories, modalities, data_preview
-    )
-    result['榜单类型'] = benchmark_type
-    result['榜单关键词原句'] = benchmark_sentence
-    result['Agent类型'] = agent_type
-    result['混合说明'] = mix_detail
 
     # 内容安全
     has_warning, warning_reason = check_content_warning(api_data, tags, readme_text, card_data)
@@ -590,7 +317,12 @@ if __name__ == '__main__':
     if not filename.endswith('.xlsx'):
         filename = filename + '.xlsx'
 
-    input_path = os.path.join(desktop, filename)
+    # 支持完整路径或仅文件名
+    if os.path.isabs(filename) or os.path.exists(filename):
+        input_path = filename
+    else:
+        input_path = os.path.join(desktop, filename)
+    
     if not os.path.exists(input_path):
         print(f'错误: 文件不存在 - {input_path}')
         exit(1)
@@ -604,7 +336,7 @@ if __name__ == '__main__':
     errors = []
 
     # 串行处理
-    sleep_interval = req_config.get('sleep_between_items', 1.5)
+    sleep_interval = req_config.get('sleep_between_items', 3)
     for idx, row in df.iterrows():
         seq = row.iloc[0]
         url = str(row.iloc[1]).strip()
@@ -612,7 +344,6 @@ if __name__ == '__main__':
         results.append(info)
         if error:
             errors.append(error)
-        # 间隔控制，避免触发速率限制
         if idx < total - 1:
             time.sleep(sleep_interval)
 
@@ -621,7 +352,10 @@ if __name__ == '__main__':
     output_df = pd.DataFrame(results)
     ts = datetime.now().strftime('%H%M%S')
     output_filename = f'dataset_result_{ts}.xlsx'
-    output_path = os.path.join(desktop, output_filename)
+    # 输出到脚本所在目录的 output/ 文件夹
+    output_dir = os.path.join(os.path.dirname(__file__), 'output')
+    os.makedirs(output_dir, exist_ok=True)
+    output_path = os.path.join(output_dir, output_filename)
     output_df.to_excel(output_path, index=False, engine='openpyxl')
     
     print(f'\n{"="*60}')
