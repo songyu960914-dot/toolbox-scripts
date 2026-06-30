@@ -9,8 +9,8 @@
 从 HuggingFace / ModelScope / Kaggle 批量提取数据集元信息。
 
 - **位置**: `huggingface-dataset-extractor/`
-- **版本**: v1（原始串行）、v2（配置外部化、无LLM）、v3（并发版，已废弃）
-- **新增**: ModelScope 和 Kaggle 提取脚本
+- **版本**: v1（原始串行）、v2（配置外部化、mini版无LLM）、v3（并发版，已废弃）
+- **新增**: ModelScope 和 Kaggle 提取脚本（待更新）
 - **功能**: 提取 17 个元数据字段（时间、下载量、点赞、Tags、License、数据大小等）
 - **详情**: [README](huggingface-dataset-extractor/README.md)
 
