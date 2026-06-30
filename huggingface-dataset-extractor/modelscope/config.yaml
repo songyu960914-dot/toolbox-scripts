@@ -4,7 +4,7 @@
 llm:
   model: "glm-5-turbo"
   base_url: "https://open.bigmodel.cn/api/paas/v4"
-  api_key: "0f69e84c9f484b77b8c2df48967245ea.WDa8YSYqxEqKD5Ch"
+  api_key: "${ZHIPU_API_KEY}"
   temperature: 0.1
   max_tokens: 2000
 

@@ -251,14 +251,31 @@ def git_push():
     """提交并推送到 GitHub"""
     os.chdir(TOOLBOX_REPO)
     
+    # 0. 更新仓库 README 时间戳
+    readme_path = TOOLBOX_REPO / 'README.md'
+    if readme_path.exists():
+        content = readme_path.read_text(encoding='utf-8')
+        content = re.sub(
+            r'_最后更新: .*_',
+            f'_最后更新: {datetime.now().strftime("%Y-%m-%d")}_',
+            content
+        )
+        readme_path.write_text(content, encoding='utf-8')
+    
     # 1. 脱敏 toolbox 下的 config.yaml
     print('  脱敏 config 文件...')
     originals = sanitize_toolbox_configs()
     
-    # 2. add 部署包 + toolbox 改动
+    # 2. add 部署包 + toolbox 改动 + 根目录文件
     subprocess.run(['git', 'add', 'myagent/latest-deploy/'],
                    capture_output=True, text=True)
     subprocess.run(['git', 'add', 'huggingface-dataset-extractor/'],
+                   capture_output=True, text=True)
+    subprocess.run(['git', 'add', 'salary-calculator/'],
+                   capture_output=True, text=True)
+    subprocess.run(['git', 'add', 'README.md'],
+                   capture_output=True, text=True)
+    subprocess.run(['git', 'add', '.gitignore'],
                    capture_output=True, text=True)
     
     # 检查是否有变更
